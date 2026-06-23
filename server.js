@@ -7,7 +7,7 @@ app.use(express.json({ limit: "20mb" }));
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent";
 
 // ─── Categorías ────────────────────────────────────────────────────────────────
 
@@ -54,32 +54,53 @@ const INCOME_CATEGORIES = [
 // ─── Parser de monto ───────────────────────────────────────────────────────────
 
 function parseAmount(rawAmt) {
-  if (typeof rawAmt === "number") {
-    return Math.abs(rawAmt); // JSON numbers already have correct decimal point
-  }
-  // Handle string amounts
-  const cleaned = String(rawAmt).replace(/[^\d.,]/g, "");
+  if (rawAmt === null || rawAmt === undefined) return 0;
+  if (typeof rawAmt === "number") return Math.abs(rawAmt);
+
+  let cleaned = String(rawAmt)
+    .replace(/[₡$€£¥]/g, "")
+    .replace(/CRC|USD|EUR|GBP|JPY/gi, "")
+    .replace(/\s/g, "")
+    .trim();
+
   if (!cleaned) return 0;
 
   if (cleaned.includes(",") && cleaned.includes(".")) {
     const lastComma = cleaned.lastIndexOf(",");
     const lastDot   = cleaned.lastIndexOf(".");
     if (lastComma > lastDot) {
-      // CRC format: 4.595,40 → punto=miles, coma=decimal
-      return Math.abs(parseFloat(cleaned.replace(/\./g, "").replace(",", ".")) || 0);
+      // CRC: 4.595,40 → punto=miles, coma=decimal
+      cleaned = cleaned.replace(/\./g, "").replace(",", ".");
     } else {
-      // USD format: 4,595.40 → coma=miles, punto=decimal
-      return Math.abs(parseFloat(cleaned.replace(/,/g, "")) || 0);
+      // USD: 4,595.40 → coma=miles, punto=decimal
+      cleaned = cleaned.replace(/,/g, "");
     }
   } else if (cleaned.includes(",")) {
-    // Solo coma: si quedan ≤2 dígitos después, es decimal
     const parts = cleaned.split(",");
-    if (parts.length === 2 && parts[1].length <= 2) {
-      return Math.abs(parseFloat(cleaned.replace(",", ".")) || 0);
+    if (parts[parts.length - 1].length <= 2) {
+      // Coma es decimal
+      cleaned = cleaned.replace(/,/g, ".");
+      const parts2 = cleaned.split(".");
+      if (parts2.length > 2) {
+        const decimals = parts2.pop();
+        cleaned = parts2.join("") + "." + decimals;
+      }
+    } else {
+      // Coma es miles
+      cleaned = cleaned.replace(/,/g, "");
     }
-    return Math.abs(parseFloat(cleaned.replace(/,/g, "")) || 0);
+  } else if (cleaned.includes(".")) {
+    const parts = cleaned.split(".");
+    if (parts[parts.length - 1].length <= 2 && parts.length <= 2) {
+      // Punto es decimal, dejar como está
+    } else {
+      // Punto es miles
+      cleaned = cleaned.replace(/\./g, "");
+    }
   }
-  return Math.abs(parseFloat(cleaned) || 0);
+
+  const result = parseFloat(cleaned);
+  return isNaN(result) ? 0 : Math.abs(result);
 }
 
 // ─── Health check ──────────────────────────────────────────────────────────────
@@ -127,32 +148,22 @@ Analiza la imagen y extrae la información de la transacción.
 Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin bloques de código, sin texto extra).
 
 ══════════════════════════════════════════════════════════
-EJEMPLOS CRÍTICOS DE CÓMO DEVOLVER EL MONTO:
+CAMPO amount_raw — LEE CON MUCHA ATENCIÓN:
 ══════════════════════════════════════════════════════════
-EJEMPLO 1: El ticket dice "CRC 4.595,40" → amount debe ser 4595.40 (incluye los ,40 céntimos)
-EJEMPLO 2: El ticket dice "CRC 4595,40"  → amount debe ser 4595.40 (incluye los ,40 céntimos)
-EJEMPLO 3: El ticket dice "CRC 23.000"   → amount debe ser 23000 (sin decimales)
-EJEMPLO 4: El ticket dice "₡1.500,75"   → amount debe ser 1500.75 (incluye los ,75 céntimos)
-EJEMPLO 5: El ticket dice "$1,234.56"    → amount debe ser 1234.56 (incluye los .56 centavos)
-EJEMPLO 6: El ticket dice "$50.00"       → amount debe ser 50 (cero decimales = entero)
+El campo "amount_raw" debe contener EXACTAMENTE los dígitos y separadores
+del monto tal como aparecen en el comprobante, sin convertir ni formatear.
 
-⚠️ ADVERTENCIA CRÍTICA: Si el comprobante muestra céntimos o centavos después
-de la coma (CRC) o el punto (USD), DEBES incluirlos obligatoriamente en el amount.
-NUNCA truncues ni redondees los decimales. Si ves ",40" o ",75" o ".99" al final
-del número, esos dígitos SON PARTE DEL MONTO y deben aparecer en tu respuesta.
+EJEMPLOS OBLIGATORIOS:
+• El ticket dice "CRC 4.595,40"  → amount_raw: "4.595,40"   (copia literal, con coma y los 40)
+• El ticket dice "CRC 4595,40"   → amount_raw: "4595,40"    (copia literal, con coma y los 40)
+• El ticket dice "₡1.500,75"    → amount_raw: "1.500,75"   (copia literal, con coma y los 75)
+• El ticket dice "CRC 23.000"    → amount_raw: "23.000"     (sin decimales, copia literal)
+• El ticket dice "$1,234.56"     → amount_raw: "1,234.56"   (copia literal)
+• El ticket dice "$50.00"        → amount_raw: "50.00"      (copia literal)
 
-══════════════════════════════════════════════
-REGLAS PARA EL MONTO:
-══════════════════════════════════════════════
-• En Costa Rica (CRC): el PUNTO (.) separa miles y la COMA (,) marca decimales.
-  Ejemplo: ₡4.595,40 → devuelve 4595.40 | ₡23.000 → devuelve 23000
-• En USD ($): la COMA (,) separa miles y el PUNTO (.) marca decimales.
-  Ejemplo: $1,234.56 → devuelve 1234.56 | $23,000 → devuelve 23000
-• Si ves coma o punto seguido de exactamente 2 dígitos al final (ej: ,40 o ,75 o .99),
-  DEBES incluir esos 2 dígitos como decimales en el amount. Nunca los omitas.
-• Devuelve el monto como número JSON con punto decimal si hay céntimos/centavos.
-• Si el monto NO tiene decimales, devuelve entero (ej: 3500, NO 3500.0).
-• NUNCA uses comas ni símbolos de moneda en el número JSON.
+⚠️ REGLA CRÍTICA: Copia el string EXACTAMENTE como aparece. NO interpretes,
+NO conviertas, NO omitas dígitos. Si el recibo dice "4595,40", el campo
+amount_raw debe ser "4595,40" — con la coma y el 40.
 
 ══════════════
 MONEDA:
@@ -176,7 +187,6 @@ DESCRIPCIÓN:
 ══════════════
 • En español, máximo 60 caracteres.
 • Incluye el nombre del comercio si es visible + qué se compró.
-• Ejemplo: "Uber One Membership", "Farmacia Sucre - medicamentos"
 
 ══════════════════════════════════════════
 CATEGORÍAS DE GASTO (usa el ID exacto entre comillas):
@@ -202,7 +212,8 @@ REGLAS DE CATEGORIZACIÓN:
 Devuelve SOLO este JSON (sin nada más):
 {
   "type": "expense" o "income",
-  "amount": número con punto decimal si hay céntimos (ej: 4595.40), entero si no (ej: 3500),
+  "amount_raw": "string EXACTO del monto como aparece en el recibo (ej: '4.595,40' o '1,234.56')",
+  "currency_symbol": "símbolo o texto de moneda exacto del recibo (₡, CRC, $, USD) o '' si no hay",
   "currency": "CRC" o "USD",
   "description": "descripción en español máx 60 chars",
   "category": "id_exacto_de_categoria",
@@ -244,9 +255,12 @@ Devuelve SOLO este JSON (sin nada más):
 
     const parsed = JSON.parse(jsonMatch[0]);
 
+    const amountInput = parsed.amount_raw ?? parsed.amount;
+    const amount = parseAmount(amountInput);
+    console.log(`[receipt] amount_raw: ${JSON.stringify(parsed.amount_raw)} | amount fallback: ${JSON.stringify(parsed.amount)} → parsed: ${amount}`);
+
     const txType   = parsed.type === "income" ? "income" : "expense";
     const currency = parsed.currency === "USD" ? "USD" : "CRC";
-    const amount   = parseAmount(parsed.amount);
 
     const allExpenseIds = [
       ...EXPENSE_CATEGORIES.map((c) => c.id),
