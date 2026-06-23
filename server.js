@@ -51,22 +51,28 @@ const INCOME_CATEGORIES = [
   { id: "other_income",label: "Otro",       examples: "transferencia recibida sin contexto claro, ingreso no identificado" },
 ];
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
+// ─── Parser de monto ───────────────────────────────────────────────────────────
 
 function parseAmount(rawAmt) {
-  if (typeof rawAmt === "number") return Math.abs(rawAmt);
+  if (typeof rawAmt === "number") {
+    return Math.abs(rawAmt); // JSON numbers already have correct decimal point
+  }
+  // Handle string amounts
   const cleaned = String(rawAmt).replace(/[^\d.,]/g, "");
+  if (!cleaned) return 0;
+
   if (cleaned.includes(",") && cleaned.includes(".")) {
     const lastComma = cleaned.lastIndexOf(",");
-    const lastDot = cleaned.lastIndexOf(".");
+    const lastDot   = cleaned.lastIndexOf(".");
     if (lastComma > lastDot) {
-      // CRC: 1.500,50 → punto=miles, coma=decimal
+      // CRC format: 4.595,40 → punto=miles, coma=decimal
       return Math.abs(parseFloat(cleaned.replace(/\./g, "").replace(",", ".")) || 0);
     } else {
-      // USD: 1,500.50 → coma=miles, punto=decimal
+      // USD format: 4,595.40 → coma=miles, punto=decimal
       return Math.abs(parseFloat(cleaned.replace(/,/g, "")) || 0);
     }
   } else if (cleaned.includes(",")) {
+    // Solo coma: si quedan ≤2 dígitos después, es decimal
     const parts = cleaned.split(",");
     if (parts.length === 2 && parts[1].length <= 2) {
       return Math.abs(parseFloat(cleaned.replace(",", ".")) || 0);
@@ -78,8 +84,8 @@ function parseAmount(rawAmt) {
 
 // ─── Health check ──────────────────────────────────────────────────────────────
 
-app.get("/healthz", (req, res) => res.json({ status: "ok" }));
-app.get("/api/healthz", (req, res) => res.json({ status: "ok" }));
+app.get("/healthz",     (_req, res) => res.json({ status: "ok" }));
+app.get("/api/healthz", (_req, res) => res.json({ status: "ok" }));
 
 // ─── Analyze receipt ───────────────────────────────────────────────────────────
 
@@ -120,16 +126,33 @@ app.post("/api/analyze-receipt", async (req, res) => {
 Analiza la imagen y extrae la información de la transacción.
 Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin bloques de código, sin texto extra).
 
+══════════════════════════════════════════════════════════
+EJEMPLOS CRÍTICOS DE CÓMO DEVOLVER EL MONTO:
+══════════════════════════════════════════════════════════
+EJEMPLO 1: El ticket dice "CRC 4.595,40" → amount debe ser 4595.40 (incluye los ,40 céntimos)
+EJEMPLO 2: El ticket dice "CRC 4595,40"  → amount debe ser 4595.40 (incluye los ,40 céntimos)
+EJEMPLO 3: El ticket dice "CRC 23.000"   → amount debe ser 23000 (sin decimales)
+EJEMPLO 4: El ticket dice "₡1.500,75"   → amount debe ser 1500.75 (incluye los ,75 céntimos)
+EJEMPLO 5: El ticket dice "$1,234.56"    → amount debe ser 1234.56 (incluye los .56 centavos)
+EJEMPLO 6: El ticket dice "$50.00"       → amount debe ser 50 (cero decimales = entero)
+
+⚠️ ADVERTENCIA CRÍTICA: Si el comprobante muestra céntimos o centavos después
+de la coma (CRC) o el punto (USD), DEBES incluirlos obligatoriamente en el amount.
+NUNCA truncues ni redondees los decimales. Si ves ",40" o ",75" o ".99" al final
+del número, esos dígitos SON PARTE DEL MONTO y deben aparecer en tu respuesta.
+
 ══════════════════════════════════════════════
-REGLAS PARA EL MONTO (crítico — lee con cuidado):
+REGLAS PARA EL MONTO:
 ══════════════════════════════════════════════
-• En Costa Rica (CRC): el PUNTO (.) separa miles y la COMA (,) son decimales.
-  Ejemplo: ₡1.500,50 → devuelve 1500.50 | ₡23.000 → devuelve 23000
-• En USD ($): la COMA (,) separa miles y el PUNTO (.) son decimales.
-  Ejemplo: $1,500.50 → devuelve 1500.50 | $23,000 → devuelve 23000
-• Devuelve el monto como número JSON con punto decimal si hay centavos/céntimos.
+• En Costa Rica (CRC): el PUNTO (.) separa miles y la COMA (,) marca decimales.
+  Ejemplo: ₡4.595,40 → devuelve 4595.40 | ₡23.000 → devuelve 23000
+• En USD ($): la COMA (,) separa miles y el PUNTO (.) marca decimales.
+  Ejemplo: $1,234.56 → devuelve 1234.56 | $23,000 → devuelve 23000
+• Si ves coma o punto seguido de exactamente 2 dígitos al final (ej: ,40 o ,75 o .99),
+  DEBES incluir esos 2 dígitos como decimales en el amount. Nunca los omitas.
+• Devuelve el monto como número JSON con punto decimal si hay céntimos/centavos.
 • Si el monto NO tiene decimales, devuelve entero (ej: 3500, NO 3500.0).
-• NUNCA uses comas ni símbolos de moneda en el número.
+• NUNCA uses comas ni símbolos de moneda en el número JSON.
 
 ══════════════
 MONEDA:
@@ -153,7 +176,7 @@ DESCRIPCIÓN:
 ══════════════
 • En español, máximo 60 caracteres.
 • Incluye el nombre del comercio si es visible + qué se compró.
-• Ejemplo: "Ferretería El Clavo - herramientas", "Farmacia Sucre - medicamentos"
+• Ejemplo: "Uber One Membership", "Farmacia Sucre - medicamentos"
 
 ══════════════════════════════════════════
 CATEGORÍAS DE GASTO (usa el ID exacto entre comillas):
@@ -170,14 +193,16 @@ REGLAS DE CATEGORIZACIÓN:
    farmacia/droguería → "health" | ferretería/materiales → "repairs"
    gasolinera → "fuel" | supermercado (comida) → "meals"
    restaurante/soda/fast food local → "restaurant"
-2. Si hay varios artículos, categoriza según el ítem de mayor valor o el tipo predominante.
+   Uber/Didi/taxi → "transport" | Uber Eats/Rappi → "delivery"
+   Netflix/Spotify/suscripción digital → "subscriptions"
+2. Si hay varios artículos, categoriza según el ítem de mayor valor o tipo predominante.
 3. Si no estás seguro → usa "other_expense" o "other_income".
 4. NUNCA uses categorías que no estén en la lista de arriba.
 
 Devuelve SOLO este JSON (sin nada más):
 {
   "type": "expense" o "income",
-  "amount": número (con punto decimal si hay centavos, entero si no),
+  "amount": número con punto decimal si hay céntimos (ej: 4595.40), entero si no (ej: 3500),
   "currency": "CRC" o "USD",
   "description": "descripción en español máx 60 chars",
   "category": "id_exacto_de_categoria",
@@ -198,7 +223,7 @@ Devuelve SOLO este JSON (sin nada más):
           },
         ],
         generationConfig: {
-          maxOutputTokens: 512,
+          maxOutputTokens: 2048,
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 0 },
         },
