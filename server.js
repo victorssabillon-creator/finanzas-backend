@@ -7,7 +7,7 @@ app.use(express.json({ limit: "20mb" }));
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
 // ─── Categorías ────────────────────────────────────────────────────────────────
 
