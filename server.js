@@ -32,7 +32,7 @@ const EXPENSE_CATEGORIES = [
   { id: "electronics",  label: "Electrónica",      examples: "celular, televisor, laptop, audífonos, electrodomésticos, cargador, tablet" },
   { id: "insurance",    label: "Seguros",          examples: "seguro de auto, seguro de salud, seguro de vida, COSEVI, INS, póliza" },
  { id: "repairs", label: "Reparaciones", examples: "reparaciones del hogar generales, mantenimiento, arreglos" },
- { id: "urgent", label: "Gasto ASAP", examples: "ferretería, martillo, clavos, taladro, pintura, materiales de construcción, herramientas, plomero, electricista, gasto urgente no médico, emergencia del hogar" },
+ { id: "urgent", label: "Gasto ASAP", examples: "ferretería, Colono, Coopelesca, Novoa, EPA, martillo, clavos, taladro, pintura, materiales de construcción, herramientas, plomero, electricista, gasto urgente no médico, emergencia del hogar" },
   { id: "outings",      label: "Salidas",          examples: "discoteca, bar, karaoke, salida nocturna, tragos" },
   { id: "flights",      label: "Avión",            examples: "boleto de avión, aerolínea, vuelo, tiquete aéreo" },
   { id: "hotel",        label: "Hotel",            examples: "hotel, Airbnb, hospedaje, alojamiento, resort" },
