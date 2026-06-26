@@ -31,8 +31,8 @@ const EXPENSE_CATEGORIES = [
   { id: "delivery",     label: "Delivery",         examples: "Uber Eats, Rappi, Hugo, iFood, pedido a domicilio, comida delivery" },
   { id: "electronics",  label: "Electrónica",      examples: "celular, televisor, laptop, audífonos, electrodomésticos, cargador, tablet" },
   { id: "insurance",    label: "Seguros",          examples: "seguro de auto, seguro de salud, seguro de vida, COSEVI, INS, póliza" },
-  { id: "repairs",      label: "Reparaciones",     examples: "martillo, clavos, taladro, pintura, ferretería, materiales de construcción, herramientas, plomero, electricista" },
-  { id: "urgent",       label: "Gasto ASAP",       examples: "gasto urgente no médico, emergencia del hogar" },
+ { id: "repairs", label: "Reparaciones", examples: "reparaciones del hogar generales, mantenimiento, arreglos" },
+ { id: "urgent", label: "Gasto ASAP", examples: "ferretería, martillo, clavos, taladro, pintura, materiales de construcción, herramientas, plomero, electricista, gasto urgente no médico, emergencia del hogar" },
   { id: "outings",      label: "Salidas",          examples: "discoteca, bar, karaoke, salida nocturna, tragos" },
   { id: "flights",      label: "Avión",            examples: "boleto de avión, aerolínea, vuelo, tiquete aéreo" },
   { id: "hotel",        label: "Hotel",            examples: "hotel, Airbnb, hospedaje, alojamiento, resort" },
@@ -200,7 +200,7 @@ ${customSection}
 REGLAS DE CATEGORIZACIÓN:
 ══════════════════════════════════════════
 1. Usa el nombre del comercio como pista principal:
-   farmacia/droguería → "health" | ferretería/materiales → "repairs"
+   farmacia/droguería → "health" | ferretería/materiales → "urgent"
    gasolinera → "fuel" | supermercado (comida) → "meals"
    restaurante/soda/fast food local → "restaurant"
    Uber/Didi/taxi → "transport" | Uber Eats/Rappi → "delivery"
