@@ -236,7 +236,6 @@ Devuelve SOLO este JSON (sin nada más):
         generationConfig: {
           maxOutputTokens: 2048,
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 0 },
         },
       }),
     });
